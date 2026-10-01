@@ -784,17 +784,54 @@ class KidoSaveMesh:
                 written = out
             else:
                 data = None
-                for attr in ("getvalue", "read"):
-                    fn = getattr(mesh, attr, None)
-                    if callable(fn):
+                # ComfyUI's newer File3D API (seen on MeshToFile3D's FILE_3D_GLB):
+                #   save_to(path) writes the file itself - preferred, it keeps any texture/UV
+                #   side data; get_bytes()/get_data() return the serialised file;
+                #   get_source() may hand back a path on disk.
+                save_to = getattr(mesh, "save_to", None)
+                if callable(save_to):
+                    try:
+                        save_to(out)
+                        if os.path.exists(out) and os.path.getsize(out) > 0:
+                            written = out
+                    except Exception as exc:
+                        print(f"[Kido Save Mesh] File3D.save_to failed ({type(exc).__name__}: {exc})"
+                              f" - falling back to bytes", flush=True)
+                if written is None:
+                    for attr in ("get_bytes", "get_data"):
+                        fn = getattr(mesh, attr, None)
+                        if callable(fn):
+                            try:
+                                d = fn()
+                                if isinstance(d, (bytes, bytearray)) and len(d):
+                                    data = bytes(d)
+                                    break
+                            except Exception:
+                                pass
+                if written is None and data is None:
+                    src = getattr(mesh, "get_source", None)
+                    if callable(src):
                         try:
-                            d = fn()
-                            data = d if isinstance(d, (bytes, bytearray)) else None
-                            if data is not None:
-                                break
+                            s = src()
+                            if isinstance(s, str) and os.path.exists(s):
+                                import shutil
+
+                                shutil.copyfile(s, out)
+                                written = out
                         except Exception:
                             pass
-                if data is None:
+                if written is None and data is None:
+                    for attr in ("getvalue", "read"):
+                        fn = getattr(mesh, attr, None)
+                        if callable(fn):
+                            try:
+                                d = fn()
+                                data = d if isinstance(d, (bytes, bytearray)) else None
+                                if data is not None:
+                                    break
+                            except Exception:
+                                pass
+                if written is None and data is None:
                     for attr in ("data", "bytes", "buffer", "content", "source"):
                         d = getattr(mesh, attr, None)
                         if isinstance(d, (bytes, bytearray)):
@@ -803,14 +840,15 @@ class KidoSaveMesh:
                         if hasattr(d, "getvalue"):
                             data = d.getvalue()
                             break
-                if data is None:
+                if written is None and data is None:
                     raise RuntimeError(
                         f"Kido Save Mesh cannot serialise {type(mesh).__name__}; "
                         f"attributes seen: {[a for a in dir(mesh) if not a.startswith('_')][:25]}"
                     )
-                with open(out, "wb") as fh:
-                    fh.write(data)
-                written = out
+                if data is not None:
+                    with open(out, "wb") as fh:
+                        fh.write(data)
+                    written = out
             print(f"[Kido Save Mesh] wrote {type(mesh).__name__} -> {out} "
                   f"({os.path.getsize(out):,} B)", flush=True)
         return (written,)

@@ -37,7 +37,8 @@ except urllib.error.HTTPError as e:
 pid = resp.get("prompt_id")
 print("submitted prompt_id:", pid)
 print("node_errors:", json.dumps(resp.get("node_errors", {}))[:2000])
-expected = [n for n in prompt if prompt[n]["class_type"].startswith("Save")]
+expected = [n for n in prompt
+            if prompt[n]["class_type"].startswith("Save") or "Save" in prompt[n]["class_type"]]
 print("expected save nodes:", expected)
 
 t0 = time.time()
