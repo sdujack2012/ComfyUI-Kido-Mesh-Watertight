@@ -1,0 +1,427 @@
+{
+  "id": "kido-watertight",
+  "revision": 0,
+  "last_node_id": 8,
+  "last_link_id": 7,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "BD_LoadMesh",
+      "pos": [
+        60,
+        60
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "TRIMESH",
+          "links": null
+        },
+        {
+          "name": "mesh_path",
+          "type": "STRING",
+          "links": null
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BD_LoadMesh",
+        "cnr_id": "BD_LoadMesh"
+      },
+      "widgets_values": [
+        "(none \u2014 use file_path)",
+        "/tmp/fw2_src.glb",
+        false
+      ]
+    },
+    {
+      "id": 2,
+      "type": "BD_TrimeshToMesh",
+      "pos": [
+        390,
+        60
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "TRIMESH",
+          "link": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MESH",
+          "type": "MESH",
+          "links": null
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BD_TrimeshToMesh",
+        "cnr_id": "BD_TrimeshToMesh"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 3,
+      "type": "KidoMeshWatertight",
+      "pos": [
+        720,
+        60
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KidoMeshWatertight",
+        "cnr_id": "KidoMeshWatertight"
+      },
+      "widgets_values": [
+        512,
+        1.0,
+        0,
+        0,
+        true,
+        0.05,
+        0,
+        true,
+        true
+      ]
+    },
+    {
+      "id": 4,
+      "type": "KidoMeshTopologyAudit",
+      "pos": [
+        1050,
+        60
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 3
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": null
+        },
+        {
+          "name": "boundary_edges",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "nonmanifold_edges",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "shells",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "watertight",
+          "type": "BOOLEAN",
+          "links": null
+        },
+        {
+          "name": "report",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KidoMeshTopologyAudit",
+        "cnr_id": "KidoMeshTopologyAudit"
+      },
+      "widgets_values": [
+        6
+      ]
+    },
+    {
+      "id": 5,
+      "type": "CuMeshGeometryDecimate",
+      "pos": [
+        60,
+        250
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "CuMeshGeometryDecimate",
+        "cnr_id": "CuMeshGeometryDecimate"
+      },
+      "widgets_values": [
+        300000,
+        1e-08,
+        0.01,
+        0.001,
+        true,
+        true,
+        true
+      ]
+    },
+    {
+      "id": 6,
+      "type": "KidoMeshTopologyAudit",
+      "pos": [
+        390,
+        250
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "link": 5
+        }
+      ],
+      "outputs": [
+        {
+          "name": "mesh",
+          "type": "MESH",
+          "links": null
+        },
+        {
+          "name": "boundary_edges",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "nonmanifold_edges",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "shells",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "watertight",
+          "type": "BOOLEAN",
+          "links": null
+        },
+        {
+          "name": "report",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "KidoMeshTopologyAudit",
+        "cnr_id": "KidoMeshTopologyAudit"
+      },
+      "widgets_values": [
+        6
+      ]
+    },
+    {
+      "id": 7,
+      "type": "SaveGLB",
+      "pos": [
+        720,
+        250
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D",
+          "link": 6
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveGLB",
+        "cnr_id": "SaveGLB"
+      },
+      "widgets_values": [
+        "3d/kido_wt_512"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "SaveGLB",
+      "pos": [
+        1050,
+        250
+      ],
+      "size": [
+        300,
+        110
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "mesh",
+          "type": "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D",
+          "link": 7
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "SaveGLB",
+        "cnr_id": "SaveGLB"
+      },
+      "widgets_values": [
+        "3d/kido_wt_512_dec300k"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "TRIMESH"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "MESH"
+    ],
+    [
+      3,
+      3,
+      0,
+      4,
+      0,
+      "MESH"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      0,
+      "MESH"
+    ],
+    [
+      5,
+      5,
+      0,
+      6,
+      0,
+      "MESH"
+    ],
+    [
+      6,
+      4,
+      0,
+      7,
+      0,
+      "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D"
+    ],
+    [
+      7,
+      6,
+      0,
+      8,
+      0,
+      "MESH,FILE_3D_GLB,FILE_3D_GLTF,FILE_3D_OBJ,FILE_3D_FBX,FILE_3D_STL,FILE_3D_USDZ,FILE_3D_PLY,FILE_3D_SPLAT,FILE_3D_SPZ,FILE_3D_KSPLAT,FILE_3D_SPLAT_ANY,FILE_3D_POINT_CLOUD_ANY,FILE_3D"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 1.0,
+      "offset": [
+        0,
+        0
+      ]
+    }
+  },
+  "version": 0.4
+}

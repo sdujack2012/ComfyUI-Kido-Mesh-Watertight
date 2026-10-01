@@ -1,0 +1,72 @@
+{
+  "load": {
+    "class_type": "BD_LoadMesh",
+    "inputs": {
+      "model_file": "(none — use file_path)",
+      "file_path": "/tmp/fw2_src.glb",
+      "merge_scene": false
+    }
+  },
+  "t2m": {
+    "class_type": "BD_TrimeshToMesh",
+    "inputs": {
+      "mesh": ["load", 0]
+    }
+  },
+  "wt": {
+    "class_type": "KidoMeshWatertight",
+    "inputs": {
+      "mesh": ["t2m", 0],
+      "resolution": 512,
+      "iso_voxels": 1.0,
+      "seal_iterations": 0,
+      "smooth_sigma": 0,
+      "auto_repair": true,
+      "max_hole_perimeter": 0.05,
+      "min_component_voxels": 0,
+      "unload_models": true,
+      "verbose": true
+    }
+  },
+  "audit_wt": {
+    "class_type": "KidoMeshTopologyAudit",
+    "inputs": {
+      "mesh": ["wt", 0],
+      "weld_precision": 6
+    }
+  },
+  "dec": {
+    "class_type": "CuMeshGeometryDecimate",
+    "inputs": {
+      "mesh": ["audit_wt", 0],
+      "target_faces": 300000,
+      "initial_threshold": 1e-08,
+      "edge_length_weight": 0.01,
+      "skinny_triangle_weight": 0.001,
+      "unload_models": true,
+      "output_smooth_normals": true,
+      "verbose": true
+    }
+  },
+  "audit_dec": {
+    "class_type": "KidoMeshTopologyAudit",
+    "inputs": {
+      "mesh": ["dec", 0],
+      "weld_precision": 6
+    }
+  },
+  "save_wt": {
+    "class_type": "SaveGLB",
+    "inputs": {
+      "mesh": ["audit_wt", 0],
+      "filename_prefix": "3d/kido_wt_512"
+    }
+  },
+  "save_dec": {
+    "class_type": "SaveGLB",
+    "inputs": {
+      "mesh": ["audit_dec", 0],
+      "filename_prefix": "3d/kido_wt_512_dec300k"
+    }
+  }
+}
