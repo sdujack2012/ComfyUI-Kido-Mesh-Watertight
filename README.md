@@ -111,6 +111,21 @@ Counts are computed after welding vertices by position (rounded to `weld_precisi
 decimals) — never on the raw glTF index buffer, which splits every UV seam and makes
 any mesh look like a triangle soup.
 
+### `KidoMeshLoader` — "Kido - Load Mesh (MESH from file)"
+
+`.glb/.gltf/.obj/.ply/.stl` → native `MESH`, geometry only (no UVs/materials — the
+reconstruction replaces both anyway). Exists so a watertight run needs **no** BrainDead /
+Trellis2 stack installed: a clean ComfyUI plus this pack is enough.
+
+### `KidoSaveMesh` — "Kido - Save Mesh / File3D"
+
+Writes a `MESH` **or any runtime `FILE_3D` object** to `output/<prefix>_NNNNN_.glb`.
+
+Core `SaveGLB` assumes a MESH: anything else falls into its mesh branch and dies with
+`AttributeError: '_BakedFile3D' object has no attribute 'vertices'` (see
+`comfy_extras/nodes_save_3d.py`). That is why the author's texturing/baking workflows never
+write a file — the bake node's output has no route to disk without this node.
+
 ### `WTiVoNativeMeshToMesh` — "WTiVo - Mesh Watertight (Kido/Linux)"
 
 Drop-in for the Windows node: identical class name, identical widget names

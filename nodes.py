@@ -245,8 +245,78 @@ def _udf_grid_cuda(v_np, f_np, res, chunk=8_000_000, verbose=True):
     return dist
 
 
+def _has_cumesh(verbose=False):
+    try:
+        import cumesh  # noqa: F401
+
+        return True
+    except Exception as exc:
+        if verbose:
+            print(f"[Kido Watertight] cumesh not importable ({type(exc).__name__}: {exc}) "
+                  f"- using the CPU path", flush=True)
+        return False
+
+
+def _udf_grid_cpu(v_np, f_np, res, band=None, verbose=True):
+    """Unsigned distance on the CPU, in a NARROW BAND around the surface.
+
+    Sampling every one of res^3 voxels against a KD-tree is the naive version and takes
+    minutes on a 692k-face soup (measured: >9 min at 256^3 on 12 cores). Only voxels close
+    to the surface need an exact distance: voxels further away are either deep inside (the
+    level set's plateau handles them) or far outside. So:
+
+      1. sample the surface,
+      2. voxelise the SAMPLES and dilate by `band` voxels -> candidate voxels,
+      3. query the KD-tree only for those, leave the rest at a large positive distance.
+
+    Cost drops from res^3 queries to roughly surface-area / voxel^2 * (2*band+1)^3.
+    """
+    import trimesh
+    from scipy.spatial import cKDTree
+
+    t0 = time.time()
+    mesh = trimesh.Trimesh(vertices=np.asarray(v_np, dtype=np.float64),
+                           faces=np.asarray(f_np, dtype=np.int64), process=False)
+    n_faces = int(len(f_np))
+    count = int(min(2_000_000, max(400_000, n_faces * 2)) * (res / 256.0) ** 2)
+    pts, _ = trimesh.sample.sample_surface(mesh, count)
+    tree = cKDTree(pts)
+    if verbose:
+        print(f"[Kido Watertight] CPU field: {count:,} surface samples + KD-tree "
+              f"in {time.time() - t0:.1f}s", flush=True)
+
+    b = int(max(2, band if band is not None else 4))
+    from scipy import ndimage
+
+    stamp = np.zeros((res, res, res), dtype=bool)
+    idx = np.clip(np.floor((pts + 1.0) * (res - 1) / 2.0).astype(np.int32), 0, res - 1)
+    stamp[idx[:, 0], idx[:, 1], idx[:, 2]] = True
+    # Dilating a 1-voxel stamp map is the cheap way to build the band: the cross-product
+    # version (samples x (2b+1)^3 offsets) allocates ~1e9 rows at these sample counts and
+    # dwarfs the actual distance queries.
+    band_mask = ndimage.binary_dilation(stamp, structure=np.ones((3, 3, 3), bool),
+                                        iterations=b) if b > 0 else stamp
+    cand = np.argwhere(band_mask).astype(np.int32)
+    del stamp, band_mask
+    if verbose:
+        print(f"[Kido Watertight] CPU field: {len(cand):,} narrow-band voxels "
+              f"(of {res ** 3:,}, {100.0 * len(cand) / res ** 3:.1f}%)", flush=True)
+
+    coords = (cand.astype(np.float32) / (res - 1)) * 2.0 - 1.0
+    dist = np.full((res, res, res), np.float32(4.0 / max(1, res - 1)), dtype=np.float32)
+    step = 4_000_000
+    for i in range(0, len(coords), step):
+        chunk = coords[i:i + step]
+        d, _ = tree.query(chunk, k=1, workers=-1)
+        sub = cand[i:i + step]
+        dist[sub[:, 0], sub[:, 1], sub[:, 2]] = d.astype(np.float32)
+    if verbose:
+        print(f"[Kido Watertight] CPU distance field {res}^3 in {time.time() - t0:.1f}s", flush=True)
+    return dist
+
+
 def _occupancy_cpu(v_np, f_np, res, verbose=True):
-    """CPU fallback: trimesh voxelisation -> occupancy grid (no cumesh needed)."""
+    """Last-resort fallback: trimesh voxelisation -> occupancy grid (no sampling, no CUDA)."""
     import trimesh
 
     t0 = time.time()
@@ -375,7 +445,9 @@ def reconstruct_watertight(
         work_v, work_f, _ = _repair_cumesh(vn, f, max_hole_perimeter, verbose)
         work_v, work_f = np.asarray(work_v, dtype=np.float32), np.asarray(work_f, dtype=np.int64)
 
-    use_cuda = torch.cuda.is_available()
+    # A GPU is not enough: the fast path also needs the cumesh CUDA extension. This box has
+    # GPUs but no cumesh build, so gate on the import, not on torch.cuda.is_available().
+    use_cuda = torch.cuda.is_available() and _has_cumesh(verbose)
     if use_cuda:
         dist = _udf_grid_cuda(work_v, work_f, res, verbose=verbose)
         iso = float(iso_voxels) * (2.0 / (res - 1))
@@ -383,11 +455,18 @@ def reconstruct_watertight(
         del work_v, work_f
         gc.collect()
     else:
-        occ = _occupancy_cpu(work_v, work_f, res, verbose=verbose)
-        shell = occ > 0.5
         iso = float(iso_voxels) * (2.0 / (res - 1))
-        dist = np.where(shell, np.float32(0.0), np.float32(2.0 * iso))
-        del occ
+        try:
+            dist = _udf_grid_cpu(work_v, work_f, res, verbose=verbose)
+            shell = dist < iso
+        except Exception as exc:
+            print(f"[Kido Watertight] CPU distance field failed ({type(exc).__name__}: {exc}) "
+                  f"- falling back to coarse voxelisation", flush=True)
+            occ = _occupancy_cpu(work_v, work_f, res, verbose=verbose)
+            shell = occ > 0.5
+            dist = np.where(shell, np.float32(0.0), np.float32(2.0 * iso))
+            del occ
+        del work_v, work_f
         gc.collect()
 
     if verbose:
@@ -589,14 +668,166 @@ class WTiVoNativeMeshToMesh(KidoMeshWatertight):
         return (_pack_mesh(out),)
 
 
+class KidoMeshLoader:
+    """Load a mesh file straight into a ComfyUI MESH (no BrainDead/Trellis2 dependency).
+
+    `file_path` may be absolute or a name inside ComfyUI's input directory. UVs and materials
+    are not carried — this is meant for feeding geometry into the watertight reconstruction,
+    which replaces both anyway.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": "", "multiline": False}),
+            },
+            "optional": {
+                "merge_scene": ("BOOLEAN", {"default": False}),
+            },
+        }
+
+    RETURN_TYPES = ("MESH", "STRING")
+    RETURN_NAMES = ("mesh", "report")
+    FUNCTION = "run"
+    CATEGORY = CATEGORY
+    DESCRIPTION = "Load .glb/.gltf/.obj/.ply/.stl into a native MESH (geometry only)."
+
+    def run(self, file_path, merge_scene=False):
+        import trimesh
+
+        path = str(file_path).strip()
+        if not path:
+            raise ValueError("file_path is empty")
+        if not os.path.isabs(path):
+            try:
+                import folder_paths
+
+                candidate = os.path.join(folder_paths.get_input_directory(), path)
+                path = candidate if os.path.exists(candidate) else path
+            except Exception:
+                pass
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+
+        kwargs = {"force": "mesh"} if merge_scene else {"force": "mesh", "process": False}
+        scene = trimesh.load(path, **kwargs)
+        if isinstance(scene, trimesh.Scene):
+            scene = trimesh.util.concatenate(tuple(scene.dump()))
+        v = np.asarray(scene.vertices, dtype=np.float32)
+        f = np.asarray(scene.faces, dtype=np.int64).reshape(-1, 3)
+        report = f"{os.path.basename(path)}: {len(v):,}v / {len(f):,}f"
+        print(f"[Kido Mesh Loader] {report} ({path})", flush=True)
+        return (_pack_mesh([(v, f)], [None]), report)
+
+
+class KidoSaveMesh:
+    """Write a MESH **or any FILE_3D-ish object** to a .glb under ComfyUI's output dir.
+
+    Core `SaveGLB` assumes a MESH: every File3D flavour except a plain `Types.File3D` falls into
+    its mesh branch and dies with `AttributeError: '_BakedFile3D' object has no attribute
+    'vertices'` — e.g. the output of LODTailorBakeForger, which otherwise has NO way to reach disk
+    in the author's workflows. This node takes `*` and copes with all of them.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mesh": ("*",),
+                "filename_prefix": ("STRING", {"default": "3d/KidoMesh"}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("path",)
+    FUNCTION = "run"
+    OUTPUT_NODE = True
+    CATEGORY = CATEGORY
+    DESCRIPTION = "Save a MESH or a runtime FILE_3D object (e.g. a baked GLB) to output/*.glb."
+
+    def run(self, mesh, filename_prefix):
+        try:
+            import folder_paths
+
+            out_dir = folder_paths.get_output_directory()
+        except Exception:
+            out_dir = os.getcwd()
+
+        prefix = str(filename_prefix).strip("/") or "3d/KidoMesh"
+        target_dir = os.path.join(out_dir, os.path.dirname(prefix))
+        os.makedirs(target_dir, exist_ok=True)
+        base = os.path.basename(prefix)
+        n = 1
+        while True:
+            out = os.path.join(target_dir, f"{base}_{n:05d}_.glb")
+            if not os.path.exists(out):
+                break
+            n += 1
+
+        vertices = getattr(mesh, "vertices", None)
+        faces = getattr(mesh, "faces", None)
+        written = None
+        if vertices is not None and faces is not None:
+            import trimesh
+
+            items = _mesh_items(mesh)
+            for v, f in items:
+                written = trimesh.Trimesh(vertices=v, faces=f, process=False).export(out)
+            print(f"[Kido Save Mesh] wrote MESH -> {out} ({os.path.getsize(out):,} B)", flush=True)
+        else:
+            payload = getattr(mesh, "path", None) or getattr(mesh, "filepath", None)
+            if isinstance(payload, str) and os.path.exists(payload):
+                import shutil
+
+                shutil.copyfile(payload, out)
+                written = out
+            else:
+                data = None
+                for attr in ("getvalue", "read"):
+                    fn = getattr(mesh, attr, None)
+                    if callable(fn):
+                        try:
+                            d = fn()
+                            data = d if isinstance(d, (bytes, bytearray)) else None
+                            if data is not None:
+                                break
+                        except Exception:
+                            pass
+                if data is None:
+                    for attr in ("data", "bytes", "buffer", "content", "source"):
+                        d = getattr(mesh, attr, None)
+                        if isinstance(d, (bytes, bytearray)):
+                            data = d
+                            break
+                        if hasattr(d, "getvalue"):
+                            data = d.getvalue()
+                            break
+                if data is None:
+                    raise RuntimeError(
+                        f"Kido Save Mesh cannot serialise {type(mesh).__name__}; "
+                        f"attributes seen: {[a for a in dir(mesh) if not a.startswith('_')][:25]}"
+                    )
+                with open(out, "wb") as fh:
+                    fh.write(data)
+                written = out
+            print(f"[Kido Save Mesh] wrote {type(mesh).__name__} -> {out} "
+                  f"({os.path.getsize(out):,} B)", flush=True)
+        return (written,)
+
+
 NODE_CLASS_MAPPINGS = {
     "KidoMeshWatertight": KidoMeshWatertight,
     "KidoMeshTopologyAudit": KidoMeshTopologyAudit,
+    "KidoMeshLoader": KidoMeshLoader,
+    "KidoSaveMesh": KidoSaveMesh,
     "WTiVoNativeMeshToMesh": WTiVoNativeMeshToMesh,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "KidoMeshWatertight": "Kido - Mesh Watertight (level set)",
     "KidoMeshTopologyAudit": "Kido - Mesh Topology Audit",
+    "KidoMeshLoader": "Kido - Load Mesh (MESH from file)",
+    "KidoSaveMesh": "Kido - Save Mesh / File3D",
     "WTiVoNativeMeshToMesh": "WTiVo - Mesh Watertight (Kido/Linux)",
 }
